@@ -49,7 +49,7 @@ public class RTSPConnection {
         this.session = session;
 
         // TODO
-        cSeq = 1;
+        cSeq = 0;
         try {
             rtspSocket = new Socket(server, port);
             rtspReader = new BufferedReader(new InputStreamReader(rtspSocket.getInputStream()));
@@ -90,6 +90,7 @@ public class RTSPConnection {
         }
 
         // Send SETUP request
+        cSeq ++;
         String request = "SETUP " + videoName + " RTSP/1.0\r\n" +
                 "CSeq: " + cSeq + "\r\n" +
                 "Transport: RTP/UDP; client_port=" + rtpSocket.getLocalPort() + "\r\n\r\n";
@@ -117,7 +118,6 @@ public class RTSPConnection {
                 throw new RTSPException("No Session header in SETUP response");
             }
             sessionId = sessionHeader.trim();
-            cSeq ++;
 
         } catch (IOException e) {
             throw new RTSPException("Error sending SETUP request: " + e.getMessage());
@@ -139,6 +139,40 @@ public class RTSPConnection {
     public synchronized void play() throws RTSPException {
 
         // TODO
+        if (sessionId == null || rtpSocket == null || rtpSocket.isClosed() || videoName == null) {
+            throw new RTSPException("Stream is not set up. Please call setup() before play().");
+        }
+
+        // Send PLAY request
+        cSeq ++;
+        String request = "PLAY " + videoName + " RTSP/1.0\r\n" +
+                "CSeq: " + cSeq + "\r\n" +
+                "Session: " + sessionId + "\r\n\r\n";
+
+        try {
+            rtspWriter.write(request);
+            rtspWriter.flush();
+
+            RTSPResponse response = readRTSPResponse();
+            if (response == null) {
+                throw new RTSPException("Server closed RTSP connection unexpectedly.");
+            }
+
+            if (response.getResponseCode() != 200) {
+                throw new RTSPException("Failed to play stream: " + response.getResponseMessage());
+            }
+
+            System.out.println("Received RTSP response: " + response.toString());
+
+            // Start RTP receiving thread
+            if (rtpReceivingThread == null || !rtpReceivingThread.isAlive()) {
+                rtpReceivingThread = new RTPReceivingThread();
+                rtpReceivingThread.start();
+            }
+        } catch (IOException e) {
+            throw new RTSPException("Error sending PLAY request: " + e.getMessage());
+        }
+
     }
 
     private class RTPReceivingThread extends Thread {
