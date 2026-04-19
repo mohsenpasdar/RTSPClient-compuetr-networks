@@ -194,6 +194,9 @@ public class RTSPConnection {
         public void run() {
 
             // TODO
+            byte[] buffer = new byte[BUFFER_LENGTH];
+            DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+
         }
 
     }
@@ -254,7 +257,30 @@ public class RTSPConnection {
     public static Frame parseRTPPacket(DatagramPacket packet) {
 
         // TODO
-        return null;
+        byte[] data = packet.getData();
+        int offset = packet.getOffset();
+        int length = packet.getLength();
+
+        if (length < 12) {
+            throw new IllegalArgumentException("Invalid RTP packet: packet too short.");
+        }
+
+        // Byte 1 contains: marker (1 bit), payload type (7 bits)
+        byte firstByte = data[offset];
+        boolean marker = (firstByte & 0x80) != 0;
+        byte payloadType = (byte) (firstByte & 0x7F);
+
+        // Bytes 2-3 contain the sequence number (16 bits)
+        short sequenceNumber = ByteBuffer.wrap(data, offset + 2, 2).order(ByteOrder.BIG_ENDIAN).getShort();
+
+        // Bytes 4-7 contain the timestamp (32 bits)
+        int timestamp = ByteBuffer.wrap(data, offset + 4, 4).order(ByteOrder.BIG_ENDIAN).getInt();
+
+        // Payload starts from byte 12 and goes until the end of the packet
+        int payloadLength = length - 12;
+        int payloadOffset = offset + 12;
+
+        return new Frame(payloadType, marker, sequenceNumber, timestamp, data, payloadOffset, payloadLength);
     }
 
 
