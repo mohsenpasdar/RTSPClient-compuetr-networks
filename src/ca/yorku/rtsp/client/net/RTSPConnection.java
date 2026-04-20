@@ -199,6 +199,7 @@ public class RTSPConnection {
 
             while (!Thread.currentThread().isInterrupted() && rtpSocket != null && !rtpSocket.isClosed()) {
                 try {
+                    packet.setLength(buffer.length); // Reset packet length before receiving
                     rtpSocket.receive(packet);
                     Frame frame = parseRTPPacket(packet);
 
@@ -236,7 +237,41 @@ public class RTSPConnection {
     public synchronized void pause() throws RTSPException {
 
         // TODO
+        if (sessionId == null || rtpSocket == null || rtpSocket.isClosed() || videoName == null) {
+            throw new RTSPException("Stream is not set up. Please call setup() before pause().");
+        }
+
+        // Send PAUSE request
+        cSeq ++;
+        String request = "PAUSE " + videoName + " RTSP/1.0\r\n" +
+                "CSeq: " + cSeq + "\r\n" +
+                "Session: " + sessionId + "\r\n\r\n";
+
+        try {
+            rtspWriter.write(request);
+            rtspWriter.flush();
+
+            RTSPResponse response = readRTSPResponse();
+            if (response == null) {
+                throw new RTSPException("Server closed RTSP connection unexpectedly.");
+            }
+
+            if (response.getResponseCode() != 200) {
+                throw new RTSPException("Failed to pause stream: " + response.getResponseMessage());
+            }
+
+            System.out.println("Received RTSP response: " + response.toString());
+
+            // Stop RTP receiving thread
+            if (rtpReceivingThread != null && rtpReceivingThread.isAlive()) {
+                rtpReceivingThread.interrupt();
+                rtpReceivingThread = null;
+            }
+        } catch (IOException e) {
+            throw new RTSPException("Error sending PAUSE request: " + e.getMessage());
+        }
     }
+            
 
     /**
      * Terminates a set up stream. This method is responsible for
