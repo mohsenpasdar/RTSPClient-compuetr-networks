@@ -197,8 +197,30 @@ public class RTSPConnection {
             byte[] buffer = new byte[BUFFER_LENGTH];
             DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
 
-        }
+            while (!Thread.currentThread().isInterrupted() && rtpSocket != null && !rtpSocket.isClosed()) {
+                try {
+                    rtpSocket.receive(packet);
+                    Frame frame = parseRTPPacket(packet);
 
+                    if (frame.getPayloadLength() == 0) {
+                        session.videoEnded(frame.getSequenceNumber());
+                        break;
+                    }
+
+                    session.processReceivedFrame(frame);
+
+                } catch (SocketTimeoutException e) {
+                    // Timeout occurred, continue to wait for packets
+                } catch (SocketException e) {
+                    // Socket was closed, exit the thread
+                    break;
+                } catch (IOException e) {
+                    // Other I/O error occurred, log and continue
+                    System.err.println("Error receiving RTP packet: " + e.getMessage());
+                    break;
+                }
+            }
+        }
     }
 
     /**
