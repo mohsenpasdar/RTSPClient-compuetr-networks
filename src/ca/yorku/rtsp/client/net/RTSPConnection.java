@@ -290,6 +290,52 @@ public class RTSPConnection {
     public synchronized void teardown() throws RTSPException {
 
         // TODO
+        if (sessionId == null || videoName == null || rtpSocket == null || rtpSocket.isClosed()) {
+            throw new RTSPException("No active stream to tear down.");
+        }
+
+        // Send TEARDOWN request
+        cSeq ++;
+        String request = "TEARDOWN " + videoName + " RTSP/1.0\r\n" +
+                "CSeq: " + cSeq + "\r\n" +
+                "Session: " + sessionId + "\r\n\r\n";
+
+        try {
+            rtspWriter.write(request);
+            rtspWriter.flush();
+
+            RTSPResponse response = readRTSPResponse();
+            if (response == null) {
+                throw new RTSPException("Server closed RTSP connection unexpectedly.");
+            }
+
+            if (response.getResponseCode() != 200) {
+                throw new RTSPException("Failed to teardown stream: " + response.getResponseMessage());
+            }
+
+            System.out.println("Received RTSP response: " + response.toString());
+
+            // Stop RTP receiving thread
+            if (rtpReceivingThread != null && rtpReceivingThread.isAlive()) {
+                rtpReceivingThread.interrupt();
+            }
+
+            // Close RTP socket
+            if (rtpSocket != null && !rtpSocket.isClosed()) {
+                rtpSocket.close();
+                rtpSocket = null;
+            }
+
+            // Set the receiving thread to null
+            rtpReceivingThread = null;
+
+            // Clear session ID and video name
+            sessionId = null;
+            videoName = null;
+
+        } catch (IOException e) {
+            throw new RTSPException("Error sending TEARDOWN request: " + e.getMessage());
+        }
     }
 
     /**
