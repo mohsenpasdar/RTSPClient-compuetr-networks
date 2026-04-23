@@ -12,6 +12,11 @@ import ca.yorku.rtsp.client.net.RTSPConnection;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 
 /**
  * This class manages an open session with an RTSP server. It provides the main interaction between the network
@@ -22,6 +27,33 @@ public class Session {
     private Set<SessionListener> sessionListeners = new HashSet<SessionListener>();
     private RTSPConnection rtspConnection;
     private String videoName = null;
+
+    // Constants for the rules
+    private static final int PLAYBACK_INTERVAL = 40; // 25 frames per second
+    private static final int PAUSE_THRESHOLD = 100; // 100 milliseconds
+    private static final int RESUME_THRESHOLD = 80; // 80 milliseconds
+    private static final int MIN_BuFFER_TO_PLAY = 50; // 50 frames
+
+    // Sorted frame buffer
+    private final TreeMap<Integer, Frame> frameBuffer = new TreeMap<>();
+
+    // Scheduler for the playback of frames
+    private final ScheduledExecutorService playbackScheduler =
+            Executors.newSingleThreadScheduledExecutor();
+
+    private ScheduledFuture<?> playbackTask;
+
+    // Local playback state
+    private boolean userRequestedPlay = false;
+    private boolean sendingFramesToUI = false;
+
+    // Client/server retrival state
+    private boolean receeivingFromServer = false;
+
+    // Sequence tracking and end-of-stream tracking
+    private int nextSequenceToPlay = 0;
+    private boolean endOfStreamReceived = false;
+    private int endSequenceNumber = -1;
 
     /**
      * Creates a new RTSP session. This constructor will also create a new network connection with the server. No stream
