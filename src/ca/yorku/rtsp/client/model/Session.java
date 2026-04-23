@@ -95,13 +95,36 @@ public class Session {
      */
     public synchronized void open(String videoName) {
         try {
+            resetPlaybackState();
+
             rtspConnection.setup(videoName);
             this.videoName = videoName;
+
             for (SessionListener listener : sessionListeners)
                 listener.videoNameChanged(this.videoName);
+
+            rtspConnection.play();
+            receeivingFromServer = true;
+
         } catch (RTSPException e) {
             listenerException(e);
         }
+    }
+
+    // Create a small helper to reset playback state
+    private synchronized void resetPlaybackState() {
+        if (playbackTask != null) {
+            playbackTask.cancel(false);
+            playbackTask = null;
+        }
+
+        frameBuffer.clear();
+        nextSequenceToPlay = 0;
+        endOfStreamReceived = false;
+        endSequenceNumber = -1;
+        sendingFramesToUI = false;
+        receeivingFromServer = false;
+        userRequestedPlay = false;
     }
 
     /**
