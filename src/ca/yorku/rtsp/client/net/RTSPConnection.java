@@ -25,9 +25,9 @@ public class RTSPConnection {
     private final Session session;
 
     // TODO Add additional fields, if necessary
-    private final Socket rtspSocket;
-    private final BufferedReader rtspReader;
-    private final BufferedWriter rtspWriter;
+    private Socket rtspSocket;
+    private BufferedReader rtspReader;
+    private BufferedWriter rtspWriter;
     private DatagramSocket rtpSocket;
     private RTPReceivingThread rtpReceivingThread;
     private String sessionId;
@@ -346,6 +346,39 @@ public class RTSPConnection {
     public synchronized void closeConnection() {
 
         // TODO
+        if (rtpReceivingThread != null && rtpReceivingThread.isAlive()) {
+            rtpReceivingThread.interrupt();
+        }
+
+        if (rtpSocket != null && !rtpSocket.isClosed()) {
+            rtpSocket.close();
+            rtpSocket = null;
+        }
+
+        try {
+            rtspWriter.close();
+        } catch (IOException e) {
+            System.err.println("Error closing RTSP writer: " + e.getMessage());
+        }
+
+        try {
+            rtspReader.close();
+        } catch (IOException e) {
+            System.err.println("Error closing RTSP reader: " + e.getMessage());
+        }
+
+        try {
+            rtspSocket.close();
+        } catch (IOException e) {
+            System.err.println("Error closing RTSP socket: " + e.getMessage());
+        }
+
+        // Clear all resources and state
+        rtspWriter = null;
+        rtspReader = null;
+        rtspSocket = null;
+        sessionId = null;
+        videoName = null;
     }
 
     /**
@@ -369,9 +402,9 @@ public class RTSPConnection {
         }
 
         // Byte 1 contains: marker (1 bit), payload type (7 bits)
-        byte firstByte = data[offset];
-        boolean marker = (firstByte & 0x80) != 0;
-        byte payloadType = (byte) (firstByte & 0x7F);
+        byte secondByte = data[offset + 1];
+        boolean marker = (secondByte & 0x80) != 0; // Check if the marker bit is set
+        byte payloadType = (byte) (secondByte & 0x7F); // Extract the payload type (7 bits)
 
         // Bytes 2-3 contain the sequence number (16 bits)
         short sequenceNumber = ByteBuffer.wrap(data, offset + 2, 2).order(ByteOrder.BIG_ENDIAN).getShort();
