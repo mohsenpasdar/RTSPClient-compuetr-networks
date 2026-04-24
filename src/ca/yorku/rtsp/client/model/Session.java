@@ -270,7 +270,7 @@ public class Session {
 
         playbackTask = playbackScheduler.scheduleAtFixedRate(
                 this::playbackTick,
-                0,
+                PLAYBACK_INTERVAL,
                 PLAYBACK_INTERVAL,
                 TimeUnit.MILLISECONDS
         );
