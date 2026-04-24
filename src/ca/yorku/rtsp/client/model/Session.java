@@ -132,11 +132,8 @@ public class Session {
      * stopped.
      */
     public synchronized void play() {
-        try {
-            rtspConnection.play();
-        } catch (RTSPException e) {
-            listenerException(e);
-        }
+        userRequestedPlay = true;
+        maybeStartPlayback();
     }
 
     /**
@@ -145,11 +142,8 @@ public class Session {
      * the playback completely.
      */
     public synchronized void pause() {
-        try {
-            rtspConnection.pause();
-        } catch (RTSPException e) {
-            listenerException(e);
-        }
+        userRequestedPlay = false;
+        stopPlayBackTask();
     }
 
     /**
