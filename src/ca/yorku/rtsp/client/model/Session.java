@@ -108,7 +108,7 @@ public class Session {
         }
     }
 
-    // Create a small helper to reset playback state
+    // Create a small helper to reset the playback state
     private synchronized void resetPlaybackState() {
         if (playbackTask != null) {
             playbackTask.cancel(false);
@@ -151,13 +151,15 @@ public class Session {
      */
     public synchronized void close() {
         try {
+            stopPlayBackTask();
             rtspConnection.teardown();
-            processReceivedFrame(null);
+        } catch (RTSPException e) {
+            listenerException(e);
+        } finally {
+            resetPlaybackState();
             videoName = null;
             for (SessionListener listener : sessionListeners)
                 listener.videoNameChanged(this.videoName);
-        } catch (RTSPException e) {
-            listenerException(e);
         }
     }
 
@@ -170,7 +172,15 @@ public class Session {
      * Closes the connection with the current server. This session element should not be used anymore after this point.
      */
     public synchronized void closeConnection() {
-        rtspConnection.closeConnection();
+        try {
+            stopPlayBackTask();
+            rtspConnection.closeConnection();
+        } finally {
+            resetPlaybackState();
+             videoName = null;
+            for (SessionListener listener : sessionListeners)
+                listener.videoNameChanged(this.videoName);
+        }
     }
 
     /**
