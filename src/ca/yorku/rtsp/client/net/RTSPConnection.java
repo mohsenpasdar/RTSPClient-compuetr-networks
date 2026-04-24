@@ -49,10 +49,14 @@ public class RTSPConnection {
         this.session = session;
 
         // TODO
+        // Initialize sequence number to 0
         cSeq = 0;
         try {
+            // Create TCP socket connection to RTSP server
             rtspSocket = new Socket(server, port);
+            // Create input reader for RTSP responses
             rtspReader = new BufferedReader(new InputStreamReader(rtspSocket.getInputStream()));
+            // Create output writer for RTSP requests
             rtspWriter = new BufferedWriter(new OutputStreamWriter(rtspSocket.getOutputStream()));
         } catch (IOException e) {
             throw new RTSPException("Could not establish connection with the server: " + e.getMessage());
@@ -83,7 +87,9 @@ public class RTSPConnection {
         // TODO
         this.videoName = videoName;
         try {
+            // Create UDP socket for RTP stream reception
             rtpSocket = new DatagramSocket();
+            // Set socket timeout to 2 seconds
             rtpSocket.setSoTimeout(2000);
         } catch (SocketException e) {
             throw new RTSPException("Could not create RTP socket: " + e.getMessage());
@@ -96,15 +102,18 @@ public class RTSPConnection {
                 "Transport: RTP/UDP; client_port=" + rtpSocket.getLocalPort() + "\r\n\r\n";
 
         try {
+            // Send request to server
             rtspWriter.write(request);
             rtspWriter.flush();
 
+            // Read response from server
             RTSPResponse response = readRTSPResponse();
 
             if (response == null) {
                 throw new RTSPException("Server closed RTSP connection unexpectedly.");
             }
 
+            // Check if response indicates success
             if (response.getResponseCode() != 200) {
                 rtpSocket .close();
                 rtpSocket = null;
@@ -147,6 +156,7 @@ public class RTSPConnection {
     public synchronized void play() throws RTSPException {
 
         // TODO
+        // Verify that stream is properly set up before playing
         if (sessionId == null || rtpSocket == null || rtpSocket.isClosed() || videoName == null) {
             throw new RTSPException("Stream is not set up. Please call setup() before play().");
         }
@@ -158,21 +168,24 @@ public class RTSPConnection {
                 "Session: " + sessionId + "\r\n\r\n";
 
         try {
+            // Send request to server
             rtspWriter.write(request);
             rtspWriter.flush();
 
+            // Read response from server
             RTSPResponse response = readRTSPResponse();
             if (response == null) {
                 throw new RTSPException("Server closed RTSP connection unexpectedly.");
             }
 
+            // Check if response indicates success
             if (response.getResponseCode() != 200) {
                 throw new RTSPException("Failed to play stream: " + response.getResponseMessage());
             }
 
             System.out.println("Received RTSP response: " + response.toString());
 
-            // Start RTP receiving thread
+            // Start RTP receiving thread to receive video frames
             if (rtpReceivingThread == null || !rtpReceivingThread.isAlive()) {
                 rtpReceivingThread = new RTPReceivingThread();
                 rtpReceivingThread.start();
@@ -205,17 +218,23 @@ public class RTSPConnection {
             byte[] buffer = new byte[BUFFER_LENGTH];
             DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
 
+            // Loop until thread is interrupted or socket is closed
             while (!Thread.currentThread().isInterrupted() && rtpSocket != null && !rtpSocket.isClosed()) {
                 try {
-                    packet.setLength(buffer.length); // Reset packet length before receiving
+                    // Reset packet length before each receive
+                    packet.setLength(buffer.length);
+                    // Wait for incoming RTP packet
                     rtpSocket.receive(packet);
+                    // Parse RTP packet into Frame object
                     Frame frame = parseRTPPacket(packet);
 
+                    // Check if this is the end-of-stream marker (zero-length payload)
                     if (frame.getPayloadLength() == 0) {
                         session.videoEnded(frame.getSequenceNumber());
                         break;
                     }
 
+                    // Pass frame to session for processing
                     session.processReceivedFrame(frame);
 
                 } catch (SocketTimeoutException e) {
@@ -245,6 +264,7 @@ public class RTSPConnection {
     public synchronized void pause() throws RTSPException {
 
         // TODO
+        // Verify that stream is properly set up before pausing
         if (sessionId == null || rtpSocket == null || rtpSocket.isClosed() || videoName == null) {
             throw new RTSPException("Stream is not set up. Please call setup() before pause().");
         }
@@ -256,14 +276,17 @@ public class RTSPConnection {
                 "Session: " + sessionId + "\r\n\r\n";
 
         try {
+            // Send request to server
             rtspWriter.write(request);
             rtspWriter.flush();
 
+            // Read response from server
             RTSPResponse response = readRTSPResponse();
             if (response == null) {
                 throw new RTSPException("Server closed RTSP connection unexpectedly.");
             }
 
+            // Check if response indicates success
             if (response.getResponseCode() != 200) {
                 throw new RTSPException("Failed to pause stream: " + response.getResponseMessage());
             }
@@ -298,6 +321,7 @@ public class RTSPConnection {
     public synchronized void teardown() throws RTSPException {
 
         // TODO
+        // Verify that stream is active
         if (sessionId == null || videoName == null || rtpSocket == null || rtpSocket.isClosed()) {
             throw new RTSPException("No active stream to tear down.");
         }
@@ -309,14 +333,17 @@ public class RTSPConnection {
                 "Session: " + sessionId + "\r\n\r\n";
 
         try {
+            // Send request to server
             rtspWriter.write(request);
             rtspWriter.flush();
 
+            // Read response from server
             RTSPResponse response = readRTSPResponse();
             if (response == null) {
                 throw new RTSPException("Server closed RTSP connection unexpectedly.");
             }
 
+            // Check if response indicates success
             if (response.getResponseCode() != 200) {
                 throw new RTSPException("Failed to teardown stream: " + response.getResponseMessage());
             }
@@ -354,27 +381,32 @@ public class RTSPConnection {
     public synchronized void closeConnection() {
 
         // TODO
+        // Stop RTP receiving thread if active
         if (rtpReceivingThread != null && rtpReceivingThread.isAlive()) {
             rtpReceivingThread.interrupt();
         }
 
+        // Close RTP socket
         if (rtpSocket != null && !rtpSocket.isClosed()) {
             rtpSocket.close();
             rtpSocket = null;
         }
 
+        // Close RTSP writer
         try {
             rtspWriter.close();
         } catch (IOException e) {
             System.err.println("Error closing RTSP writer: " + e.getMessage());
         }
 
+        // Close RTSP reader
         try {
             rtspReader.close();
         } catch (IOException e) {
             System.err.println("Error closing RTSP reader: " + e.getMessage());
         }
 
+        // Close RTSP socket
         try {
             rtspSocket.close();
         } catch (IOException e) {
@@ -405,14 +437,17 @@ public class RTSPConnection {
         int offset = packet.getOffset();
         int length = packet.getLength();
 
+        // RTP packet must be at least 12 bytes (fixed header size)
         if (length < 12) {
             throw new IllegalArgumentException("Invalid RTP packet: packet too short.");
         }
 
         // Byte 1 contains: marker (1 bit), payload type (7 bits)
         byte secondByte = data[offset + 1];
-        boolean marker = (secondByte & 0x80) != 0; // Check if the marker bit is set
-        byte payloadType = (byte) (secondByte & 0x7F); // Extract the payload type (7 bits)
+        // Extract marker bit (most significant bit)
+        boolean marker = (secondByte & 0x80) != 0;
+        // Extract payload type (lower 7 bits)
+        byte payloadType = (byte) (secondByte & 0x7F);
 
         // Bytes 2-3 contain the sequence number (16 bits)
         short sequenceNumber = ByteBuffer.wrap(data, offset + 2, 2).order(ByteOrder.BIG_ENDIAN).getShort();
@@ -420,7 +455,7 @@ public class RTSPConnection {
         // Bytes 4-7 contain the timestamp (32 bits)
         int timestamp = ByteBuffer.wrap(data, offset + 4, 4).order(ByteOrder.BIG_ENDIAN).getInt();
 
-        // Payload starts from byte 12 and goes until the end of the packet
+        // Payload starts from byte 12 and continues to end of packet
         int payloadLength = length - 12;
         int payloadOffset = offset + 12;
 
@@ -443,11 +478,13 @@ public class RTSPConnection {
         // TODO
         RTSPResponse response = null;
 
+        // Read status line from server
         String statusLine = rtspReader.readLine();
         if (statusLine == null) {
             return null; // End of stream
         }
 
+        // Parse status line format: "RTSP/1.0 <code> <message>"
         String[] statusParts = statusLine.split(" ", 3);
         if (statusParts.length < 3) {
             throw new RTSPException("Invalid RTSP response status line: " + statusLine);
@@ -457,10 +494,13 @@ public class RTSPConnection {
         int responseCode = Integer.parseInt(statusParts[1]);
         String responseMessage = statusParts[2];
 
+        // Create response object with status line data
         response = new RTSPResponse(rtspVersion, responseCode, responseMessage);
 
+        // Read and parse header lines until empty line
         String headerLine;
         while ((headerLine = rtspReader.readLine()) != null && !headerLine.isEmpty()) {
+            // Parse header format: "<name>: <value>"
             String[] headerParts = headerLine.split(": ", 2);
             if (headerParts.length == 2) {
                 response.addHeaderValue(headerParts[0], headerParts[1]);

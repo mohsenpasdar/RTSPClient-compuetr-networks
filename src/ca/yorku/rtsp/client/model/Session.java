@@ -31,20 +31,21 @@ public class Session {
     private static final int RESUME_THRESHOLD = 80; // 80 milliseconds
     private static final int MIN_BuFFER_TO_PLAY = 50; // 50 frames
 
-    // Sorted frame buffer
+    // Sorted frame buffer by sequence number
     private final TreeMap<Integer, Frame> frameBuffer = new TreeMap<>();
 
     // Scheduler for the playback of frames
     private final ScheduledExecutorService playbackScheduler =
             Executors.newSingleThreadScheduledExecutor();
 
+    // Current playback task
     private ScheduledFuture<?> playbackTask;
 
     // Local playback state
     private boolean userRequestedPlay = false;
     private boolean sendingFramesToUI = false;
 
-    // Client/server retrival state
+    // Client/server retrieval state
     private boolean receeivingFromServer = false;
 
     // Sequence tracking and end-of-stream tracking
@@ -92,19 +93,23 @@ public class Session {
      */
     public synchronized void open(String videoName) {
         try {
-            // if a video is already open, close it first
+            // Close any previously opened video
             if (this.videoName != null) {
                 close();
             }
 
+            // Reset all playback state variables
             resetPlaybackState();
 
+            // Send setup request to server
             rtspConnection.setup(videoName);
             this.videoName = videoName;
 
+            // Notify all listeners of the new video
             for (SessionListener listener : sessionListeners)
                 listener.videoNameChanged(this.videoName);
 
+            // Start playback on the server
             rtspConnection.play();
             receeivingFromServer = true;
 
@@ -113,17 +118,22 @@ public class Session {
         }
     }
 
-    // Create a small helper to reset the playback state
+    // Reset playback state to initial values
     private synchronized void resetPlaybackState() {
+        // Cancel any active playback task
         if (playbackTask != null) {
             playbackTask.cancel(false);
             playbackTask = null;
         }
 
+        // Clear buffered frames
         frameBuffer.clear();
+        // Reset sequence tracking
         nextSequenceToPlay = 0;
+        // Reset end-of-stream markers
         endOfStreamReceived = false;
         endSequenceNumber = -1;
+        // Reset playback state flags
         sendingFramesToUI = false;
         receeivingFromServer = false;
         userRequestedPlay = false;
@@ -138,12 +148,15 @@ public class Session {
      * stopped.
      */
     public synchronized void play() {
+        // Mark that user wants to play
         userRequestedPlay = true;
 
+        // Cannot play if no video is open or already playing
         if (videoName == null || sendingFramesToUI) {
             return;
         }
 
+        // Start playback if buffer has frames
         if (!frameBuffer.isEmpty()) {
             sendingFramesToUI = true;
             startPlayBackTask();
@@ -156,7 +169,9 @@ public class Session {
      * the playback completely.
      */
     public synchronized void pause() {
+        // Mark that user wants to pause
         userRequestedPlay = false;
+        // Stop sending frames to UI
         stopPlayBackTask();
     }
 
@@ -165,18 +180,23 @@ public class Session {
      */
     public synchronized void close() {
         try {
+            // Stop sending frames to UI
             stopPlayBackTask();
+            // Send teardown request to server
             rtspConnection.teardown();
         } catch (RTSPException e) {
             listenerException(e);
         } finally {
+            // Reset all state variables
             resetPlaybackState();
             videoName = null;
+            // Notify listeners that video is closed
             for (SessionListener listener : sessionListeners)
                 listener.videoNameChanged(this.videoName);
         }
     }
 
+    // Notify all listeners of an exception
     private void listenerException(RTSPException e) {
         for (SessionListener listener : sessionListeners)
             listener.exceptionThrown(e);
@@ -187,13 +207,17 @@ public class Session {
      */
     public synchronized void closeConnection() {
         try {
+            // Stop playback task
             stopPlayBackTask();
-            // shutdown the executor to stop any pending playback tasks
+            // Shutdown the executor service
             playbackScheduler.shutdownNow();
+            // Close RTSP connection
             rtspConnection.closeConnection();
         } finally {
+            // Reset all state variables
             resetPlaybackState();
-             videoName = null;
+            videoName = null;
+            // Notify listeners that connection is closed
             for (SessionListener listener : sessionListeners)
                 listener.videoNameChanged(this.videoName);
         }
@@ -207,21 +231,26 @@ public class Session {
      * @param frame The recently received frame.
      */
     public synchronized void processReceivedFrame(Frame frame) {
+        // Ignore if no video is open or frame is null
         if (videoName == null || frame == null) return;
 
+        // Convert sequence number from short to unsigned int
         int seq = Short.toUnsignedInt(frame.getSequenceNumber());
 
+        // Initialize next sequence to play if buffer was empty
         if (frameBuffer.isEmpty() && nextSequenceToPlay == 0) {
             nextSequenceToPlay = seq;
         }
 
+        // Ignore frames that are older than next frame to play
         if (seq < nextSequenceToPlay) {
-            // This frame is too old, ignore it
             return;
         }
 
+        // Add frame to buffer in sequence order
         frameBuffer.put(seq, frame);
 
+        // Pause server if buffer is getting too full
         if (frameBuffer.size() >= PAUSE_THRESHOLD && receeivingFromServer) {
             try {
                 rtspConnection.pause();
@@ -231,11 +260,11 @@ public class Session {
             }
         }
 
-        // Check if we can start/resume playback
+        // Check if we can start playback
         maybeStartPlayback();
     }
 
-    // Maybe start local playback if conditions are met
+    // Start playback if conditions are met
     private synchronized void maybeStartPlayback() {
         // Check if the user has requested to play the video
         if (!userRequestedPlay) {
@@ -262,12 +291,14 @@ public class Session {
         }
     }
 
-    // Start playback task
+    // Start scheduled playback task
     private synchronized void startPlayBackTask() {
+        // Do not start if task is already running
         if (playbackTask != null && !playbackTask.isCancelled() && !playbackTask.isDone()) {
             return;
         }
 
+        // Schedule playback at fixed interval
         playbackTask = playbackScheduler.scheduleAtFixedRate(
                 this::playbackTick,
                 PLAYBACK_INTERVAL,
@@ -276,17 +307,19 @@ public class Session {
         );
     }
 
-    // Stop playback task
+    // Stop scheduled playback task
     private synchronized void stopPlayBackTask() {
         if (playbackTask != null) {
             playbackTask.cancel(false);
             playbackTask = null;
         }
 
+        // Mark that frames are no longer being sent
         sendingFramesToUI = false;
     }
 
     private synchronized void playbackTick() {
+        // Stop if conditions are no longer met for playback
         if (videoName == null || !userRequestedPlay || !sendingFramesToUI) {
             stopPlayBackTask();
             return;
@@ -306,7 +339,7 @@ public class Session {
             return;
         }
 
-        // If the stream ended and the buffer is empty, we may still need to skip missing final frames
+        // If the stream ended and the buffer is empty, skip missing final frames
         if (endOfStreamReceived && frameBuffer.isEmpty()) {
             nextSequenceToPlay++;
 
@@ -326,7 +359,7 @@ public class Session {
         }
         nextSequenceToPlay++;
 
-        // If the buffer dropped below 80, resume the server if needed
+        // Resume server if buffer drops too low
         if (frameBuffer.size() < RESUME_THRESHOLD && !receeivingFromServer && !endOfStreamReceived) {
             try {
                 rtspConnection.play();
@@ -336,7 +369,7 @@ public class Session {
             }
         }
 
-        // Check whether playback should now stop or end
+        // Check if playback should stop or end
         if (endOfStreamReceived && frameBuffer.isEmpty() && nextSequenceToPlay >= endSequenceNumber) {
             stopPlayBackTask();
             for (SessionListener listener : sessionListeners)
@@ -356,9 +389,13 @@ public class Session {
      * used to identify a missing frame at the end of the stream.
      */
     public synchronized void videoEnded(int sequenceNumber) {
+        // Mark that end-of-stream notification was received
         endOfStreamReceived = true;
-        endSequenceNumber = Short.toUnsignedInt((short) sequenceNumber);;
+        // Store the sequence number marking end of stream
+        endSequenceNumber = Short.toUnsignedInt((short) sequenceNumber);
+        // Server is no longer sending frames
         receeivingFromServer = false;
+        // Try to start playback if conditions allow
         maybeStartPlayback();
     }
 
@@ -368,6 +405,7 @@ public class Session {
      * @return The name of the video currently open, or null if no video is open.
      */
     public synchronized String getVideoName() {
+        // Return the currently opened video name
         return videoName;
     }
 }
