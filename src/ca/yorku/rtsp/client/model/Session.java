@@ -330,8 +330,10 @@ public class Session {
      * used to identify a missing frame at the end of the stream.
      */
     public synchronized void videoEnded(int sequenceNumber) {
-        for (SessionListener listener : sessionListeners)
-            listener.videoEnded();
+        endOfStreamReceived = true;
+        endSequenceNumber = sequenceNumber;
+        receeivingFromServer = false;
+        maybeStartPlayback();
     }
 
     /**
