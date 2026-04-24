@@ -285,6 +285,45 @@ public class Session {
             stopPlayBackTask();
             return;
         }
+
+        // If the stream ended and the buffer is empty, we may still need to skip missing final frames
+        if (endOfStreamReceived && frameBuffer.isEmpty()) {
+            nextSequenceToPlay++;
+
+            if (nextSequenceToPlay >= endSequenceNumber) {
+                stopPlayBackTask();
+                for (SessionListener listener : sessionListeners)
+                    listener.videoEnded();
+            }
+            return;
+        }
+
+        // Play the next expected frame
+        Frame nextFrame = frameBuffer.remove(nextSequenceToPlay);
+        if (nextFrame != null) {
+            for (SessionListener listener : sessionListeners)
+                listener.frameReceived(nextFrame);
+        }
+        nextSequenceToPlay++;
+
+        // If the buffer dropped below 80, resume the server if needed
+        if (frameBuffer.size() < RESUME_THRESHOLD && !receeivingFromServer && !endOfStreamReceived) {
+            try {
+                rtspConnection.play();
+                receeivingFromServer = true;
+            } catch (RTSPException e) {
+                listenerException(e);
+            }
+        }
+
+        // Check whether playback should now stop or end
+        if (endOfStreamReceived && frameBuffer.isEmpty() && nextSequenceToPlay >= endSequenceNumber) {
+            stopPlayBackTask();
+            for (SessionListener listener : sessionListeners)
+                listener.videoEnded();
+        } else if (frameBuffer.isEmpty() && !endOfStreamReceived) {
+            stopPlayBackTask();
+        }
     }
 
     /**
