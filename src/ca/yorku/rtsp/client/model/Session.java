@@ -190,9 +190,32 @@ public class Session {
      * @param frame The recently received frame.
      */
     public synchronized void processReceivedFrame(Frame frame) {
-        if (videoName == null) return;
-        for (SessionListener listener : sessionListeners)
-            listener.frameReceived(frame);
+        if (videoName == null || frame == null) return;
+
+        int seq = Short.toUnsignedInt(frame.getSequenceNumber());
+
+        if (frameBuffer.isEmpty() && nextSequenceToPlay == 0) {
+            nextSequenceToPlay = seq;
+        }
+
+        if (seq < nextSequenceToPlay) {
+            // This frame is too old, ignore it
+            return;
+        }
+
+        frameBuffer.put(seq, frame);
+
+        if (frameBuffer.size() >= PAUSE_THRESHOLD && receeivingFromServer) {
+            try {
+                rtspConnection.pause();
+                receeivingFromServer = false;
+            } catch (RTSPException e) {
+                listenerException(e);
+            }
+        }
+
+        // optional for later:
+        // maybeResumeLocalPlayback();
     }
 
     /**
