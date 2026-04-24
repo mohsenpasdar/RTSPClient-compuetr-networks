@@ -13,10 +13,7 @@ import ca.yorku.rtsp.client.net.RTSPConnection;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.*;
 
 /**
  * This class manages an open session with an RTSP server. It provides the main interaction between the network
@@ -214,8 +211,80 @@ public class Session {
             }
         }
 
-        // optional for later:
-        // maybeResumeLocalPlayback();
+        // Check if we can start/resume playback
+        maybeStartPlayback();
+    }
+
+    // Maybe start local playback if conditions are met
+    private synchronized void maybeStartPlayback() {
+        // Check if the user has requested to play the video
+        if (!userRequestedPlay) {
+            return;
+        }
+
+        // Check if a video is open
+        if (videoName == null) {
+            return;
+        }
+
+        // Check if playback is already running
+        if (sendingFramesToUI) {
+            return;
+        }
+
+        // Check if we have enough frames to start playback
+        boolean canStartNormally = frameBuffer.size() >= MIN_BuFFER_TO_PLAY;
+        boolean canDrainAfterEnd = endOfStreamReceived && !frameBuffer.isEmpty();
+
+        if (canStartNormally || canDrainAfterEnd) {
+            sendingFramesToUI = true;
+            startPlayBackTask();
+        }
+    }
+
+    // Start playback task
+    private synchronized void startPlayBackTask() {
+        if (playbackTask != null && !playbackTask.isCancelled() && !playbackTask.isDone()) {
+            return;
+        }
+
+        playbackTask = playbackScheduler.scheduleAtFixedRate(
+                this::playbackTick,
+                0,
+                PLAYBACK_INTERVAL,
+                TimeUnit.MILLISECONDS
+        );
+    }
+
+    // Stop playback task
+    private synchronized void stopPlayBackTask() {
+        if (playbackTask != null) {
+            playbackTask.cancel(false);
+            playbackTask = null;
+        }
+
+        sendingFramesToUI = false;
+    }
+
+    private synchronized void playbackTick() {
+        if (videoName == null || !userRequestedPlay || !sendingFramesToUI) {
+            stopPlayBackTask();
+            return;
+        }
+
+        // If playback is already fully finished, notify the UI and stop the task
+        if (endOfStreamReceived && frameBuffer.isEmpty() && nextSequenceToPlay >= endSequenceNumber) {
+            stopPlayBackTask();
+            for (SessionListener listener : sessionListeners)
+                listener.videoEnded();
+            return;
+        }
+
+        // If the buffer is empty but the stream hasn't ended, stop local playback
+        if (frameBuffer.isEmpty() && !endOfStreamReceived) {
+            stopPlayBackTask();
+            return;
+        }
     }
 
     /**
