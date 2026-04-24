@@ -92,6 +92,11 @@ public class Session {
      */
     public synchronized void open(String videoName) {
         try {
+            // if a video is already open, close it first
+            if (this.videoName != null) {
+                close();
+            }
+
             resetPlaybackState();
 
             rtspConnection.setup(videoName);
@@ -122,6 +127,7 @@ public class Session {
         sendingFramesToUI = false;
         receeivingFromServer = false;
         userRequestedPlay = false;
+        videoName = null;
     }
 
     /**
@@ -133,7 +139,15 @@ public class Session {
      */
     public synchronized void play() {
         userRequestedPlay = true;
-        maybeStartPlayback();
+
+        if (videoName == null || sendingFramesToUI) {
+            return;
+        }
+
+        if (!frameBuffer.isEmpty() || endOfStreamReceived) {
+            sendingFramesToUI = true;
+            startPlayBackTask();
+        }
     }
 
     /**
@@ -174,6 +188,8 @@ public class Session {
     public synchronized void closeConnection() {
         try {
             stopPlayBackTask();
+            // shutdown the executor to stop any pending playback tasks
+            playbackScheduler.shutdownNow();
             rtspConnection.closeConnection();
         } finally {
             resetPlaybackState();
@@ -341,7 +357,7 @@ public class Session {
      */
     public synchronized void videoEnded(int sequenceNumber) {
         endOfStreamReceived = true;
-        endSequenceNumber = sequenceNumber;
+        endSequenceNumber = Short.toUnsignedInt((short) sequenceNumber);;
         receeivingFromServer = false;
         maybeStartPlayback();
     }
