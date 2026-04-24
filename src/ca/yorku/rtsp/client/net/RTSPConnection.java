@@ -119,8 +119,16 @@ public class RTSPConnection {
             }
             sessionId = sessionHeader.trim();
 
-        } catch (IOException e) {
-            throw new RTSPException("Error sending SETUP request: " + e.getMessage());
+        } catch (IOException | RTSPException e) {
+            if (rtpSocket != null && !rtpSocket.isClosed()) {
+                rtpSocket.close();
+                rtpSocket = null;
+            }
+            sessionId = null;
+            this.videoName = null;
+            throw (e instanceof RTSPException)
+                    ? (RTSPException) e
+                    : new RTSPException("Error sending SETUP request: " + e.getMessage());
         }
     }
 

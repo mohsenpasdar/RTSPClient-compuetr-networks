@@ -144,7 +144,7 @@ public class Session {
             return;
         }
 
-        if (!frameBuffer.isEmpty() || endOfStreamReceived) {
+        if (!frameBuffer.isEmpty()) {
             sendingFramesToUI = true;
             startPlayBackTask();
         }
